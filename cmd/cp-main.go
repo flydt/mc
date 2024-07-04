@@ -24,6 +24,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"os"
 
 	"github.com/fatih/color"
 	"github.com/minio/cli"
@@ -98,6 +99,18 @@ var (
 			Usage: "Extract from remote zip file (MinIO server source only)",
 		},
 		checksumFlag,
+		cli.Uint64Flag {
+			Name:  "shardings",
+			Usage: "total sharding count",
+		},
+		cli.Uint64Flag {
+			Name:  "sharding-id",
+			Usage: "sharding id to execute the command",
+		},
+		cli.BoolFlag {
+			Name:  "debug",
+			Usage: "show more debug message for sharding processing",
+		},
 	}
 )
 
@@ -190,6 +203,11 @@ EXAMPLES:
   19. Set tags to the uploaded objects
       {{.Prompt}} {{.HelpName}} -r --tags "category=prod&type=backup" ./data/ play/another-bucket/
 
+  20. execute copy command with sharding count and sharding id (to filter content) to copy the content of 'mybucket'
+      {{.Prompt}} {{.HelpName}} --shardings 10 --sharding-id 3 --recursive play/mybucket/ /tmp/dest/
+
+  21. execute copy command with sharding count and sharding id (to filter content) to copy the content of 'mybucket' and show debug message for every sharding process action
+      {{.Prompt}} {{.HelpName}} --shardings 10 --sharding-id 3 --recursive --debug play/mybucket/ /tmp/dest/
 `,
 }
 
@@ -334,6 +352,21 @@ func doCopySession(ctx context.Context, cancelCopy context.CancelFunc, cli *cli.
 		// The Content-MD5 header is required for any request to upload an object with a retention period configured using Amazon S3 Object Lock.
 		md5, checksum = true, minio.ChecksumNone
 	}
+	shardingID := cli.Uint64("sharding-id")
+	shardings := cli.Uint64("shardings")
+	moreDebugInfo := cli.Bool("debug")
+
+	noSharding := shardings == 0 && shardingID == 0
+	if noSharding {
+		fmt.Println("execute command without enable sharding function")
+	} else {
+		if shardingID >= shardings {
+			fmt.Println("invalid parameter, shardingID must smaller than shardings (total sharding count)")
+			os.Exit(-1)
+		}
+	}
+
+	fmt.Println("execute with total sharding number: ", shardings, " and sharding id: ", shardingID)
 
 	go func() {
 		totalBytes := int64(0)
@@ -354,6 +387,26 @@ func doCopySession(ctx context.Context, cancelCopy context.CancelFunc, cli *cli.
 				errSeen = true
 				printCopyURLsError(&cpURLs)
 				break
+			}
+
+			pos_name := strings.LastIndex(cpURLs.SourceContent.URL.Path, "/")
+			src_name := cpURLs.SourceContent.URL.Path[pos_name + 1 : ]
+
+			var sumx uint64 = 0
+			for _, valint := range ([]rune(src_name)) {
+				sumx += uint64(valint)
+			}
+			src_sharding_id := sumx % shardings
+
+			// filter URL by sharding method
+			if !noSharding {
+				if shardingID != src_sharding_id {
+					if moreDebugInfo {
+						fmt.Println("skip src ", src_name, " sharding-id ", src_sharding_id, " not match with ", shardingID)
+					} else {
+						continue;
+					}
+				}
 			}
 
 			totalBytes += cpURLs.SourceContent.Size
