@@ -30,6 +30,7 @@ import (
 	"github.com/minio/cli"
 	json "github.com/minio/colorjson"
 	"github.com/minio/mc/pkg/probe"
+	"github.com/minio/minio-go/v7"
 	"github.com/minio/pkg/v3/console"
 )
 
@@ -73,8 +74,9 @@ var (
 			Usage: "disable multipart upload feature",
 		},
 		cli.BoolFlag{
-			Name:  "md5",
-			Usage: "force all upload(s) to calculate md5sum checksum",
+			Name:   "md5",
+			Usage:  "force all upload(s) to calculate md5sum checksum",
+			Hidden: true,
 		},
 		cli.StringFlag{
 			Name:  "tags",
@@ -96,6 +98,7 @@ var (
 			Name:  "zip",
 			Usage: "Extract from remote zip file (MinIO server source only)",
 		},
+		checksumFlag,
 		cli.Uint64Flag {
 			Name:  "shardings",
 			Usage: "total sharding count",
@@ -329,7 +332,6 @@ func doCopySession(ctx context.Context, cancelCopy context.CancelFunc, cli *cli.
 	} else {
 		pg = newAccounter(totalBytes)
 	}
-
 	sourceURLs := cli.Args()[:len(cli.Args())-1]
 	targetURL := cli.Args()[len(cli.Args())-1] // Last one is target
 
@@ -341,6 +343,11 @@ func doCopySession(ctx context.Context, cancelCopy context.CancelFunc, cli *cli.
 	newerThan := cli.String("newer-than")
 	rewind := cli.String("rewind")
 	versionID := cli.String("version-id")
+	md5, checksum := parseChecksum(cli)
+	if withLock {
+		// The Content-MD5 header is required for any request to upload an object with a retention period configured using Amazon S3 Object Lock.
+		md5, checksum = true, minio.ChecksumNone
+	}
 	shardingID := cli.Uint64("sharding-id")
 	shardings := cli.Uint64("shardings")
 	moreDebugInfo := cli.Bool("debug")
@@ -469,7 +476,8 @@ func doCopySession(ctx context.Context, cancelCopy context.CancelFunc, cli *cli.
 					}
 				}
 
-				cpURLs.MD5 = cli.Bool("md5") || withLock
+				cpURLs.MD5 = md5
+				cpURLs.checksum = checksum
 				cpURLs.DisableMultipart = cli.Bool("disable-multipart")
 
 				// Verify if previously copied, notify progress bar.
