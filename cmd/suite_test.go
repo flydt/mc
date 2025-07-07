@@ -18,6 +18,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/md5"
 	"crypto/tls"
@@ -29,6 +30,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"reflect"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -166,6 +168,7 @@ func testsThatDependOnOneAnother(t *testing.T) {
 	// Mirror
 	MirrorTempDirectoryStorageClassReducedRedundancy(t)
 	MirrorTempDirectory(t)
+	MirrorMinio2MinioWithTagsCopy(t)
 
 	// General object tests
 	FindObjects(t)
@@ -575,19 +578,19 @@ func ShareURLUploadErrorTests(t *testing.T) {
 	shareMsg, err := parseShareMessageFromJSONOutput(out)
 	fatalIfErrorWMsg(err, out, t)
 
-	finalURL := strings.Replace(shareMsg.ShareURL, "<FILE>", file.diskFile.Name(), -1)
+	finalURL := strings.ReplaceAll(shareMsg.ShareURL, "<FILE>", file.diskFile.Name())
 	splitCommand := strings.Split(finalURL, " ")
 
 	if skipInsecure {
 		splitCommand = append(splitCommand, "--insecure")
 	}
 
-	bucketOnly := strings.Replace(shareURLErrorBucket, defaultAlias+"/", "", -1)
+	bucketOnly := strings.ReplaceAll(shareURLErrorBucket, defaultAlias+"/", "")
 
 	// Modify base url bucket path
 	newCmd := make([]string, len(splitCommand))
 	copy(newCmd, splitCommand)
-	newCmd[1] = strings.Replace(newCmd[1], bucketOnly, "fake-bucket-name", -1)
+	newCmd[1] = strings.ReplaceAll(newCmd[1], bucketOnly, "fake-bucket-name")
 	out, _ = RunCommand(newCmd[0], newCmd[1:]...)
 	curlFatalIfNoErrorTag(out, t)
 
@@ -623,7 +626,7 @@ func ShareURLUploadTest(t *testing.T) {
 	shareMsg, err := parseShareMessageFromJSONOutput(out)
 	fatalIfErrorWMsg(err, out, t)
 
-	finalURL := strings.Replace(shareMsg.ShareURL, "<FILE>", file.diskFile.Name(), -1)
+	finalURL := strings.ReplaceAll(shareMsg.ShareURL, "<FILE>", file.diskFile.Name())
 	splitCommand := strings.Split(finalURL, " ")
 
 	if skipInsecure {
@@ -774,6 +777,56 @@ func MirrorTempDirectory(t *testing.T) {
 
 		if !fileFound {
 			t.Fatalf("File was not uploaded: %s", f.fileNameWithPrefix)
+		}
+	}
+}
+
+type tagListResult struct {
+	Tagset    map[string]string `json:"tagset"`
+	Status    string            `json:"status"`
+	URL       string            `json:"url"`
+	VersionID string            `json:"versionID"`
+}
+
+func MirrorMinio2MinioWithTagsCopy(t *testing.T) {
+	TargetBucket := CreateBucket(t)
+	out, err := RunMC(
+		"mirror",
+		mainTestBucket,
+		TargetBucket,
+	)
+	fatalIfErrorWMsg(err, out, t)
+
+	out, err = RunMC("tag", "list", TargetBucket, "-r")
+	fatalIfErrorWMsg(err, out, t)
+	var targetTagsList []tagListResult
+	outStrs := bufio.NewScanner(strings.NewReader(out))
+	for outStrs.Scan() {
+		outStr := outStrs.Text()
+		if outStr == "" {
+			continue
+		}
+		tagList := new(tagListResult)
+		if err := json.Unmarshal([]byte(outStr), tagList); err != nil {
+			fatalIfErrorWMsg(err, out, t)
+		}
+		targetTagsList = append(targetTagsList, *tagList)
+	}
+
+	for _, f := range fileMap {
+		fileFound := false
+
+		for _, o := range targetTagsList {
+			if strings.Contains(o.URL, f.fileNameWithPrefix) {
+				fileFound = true
+				if !reflect.DeepEqual(f.tags, o.Tagset) {
+					fatalMsgOnly(fmt.Sprintf("expecting tags (%s) but got tags (%s)", f.tags, o.Tagset), t)
+				}
+			}
+		}
+
+		if !fileFound {
+			t.Fatalf("File was not mirrored: %s", f.fileNameWithPrefix)
 		}
 	}
 }
@@ -2960,7 +3013,7 @@ func BuildCLI() error {
 	os.Remove(mcCmd)
 	out, err := exec.Command("go", "build", "-o", mcCmd, buildPath).CombinedOutput()
 	if err != nil {
-		log.Println("BUILD OUT:", out)
+		log.Println("BUILD OUT:", string(out))
 		log.Println(err)
 		panic(err)
 	}

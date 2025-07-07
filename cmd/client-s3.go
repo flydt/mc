@@ -898,6 +898,9 @@ func (c *S3Client) Get(ctx context.Context, opts GetOptions) (io.ReadCloser, *Cl
 			return nil, nil, probe.NewError(err)
 		}
 	}
+	if opts.Preserve {
+		o.Set("X-Amz-Tagging-Directive", "ACCESS")
+	}
 	// Disallow automatic decompression for some objects with content-encoding set.
 	o.Set("Accept-Encoding", "identity")
 
@@ -1083,6 +1086,8 @@ func (c *S3Client) Put(ctx context.Context, reader io.Reader, size int64, progre
 		}
 	}
 
+	disableSha256 := putOpts.checksum.IsSet() // pre-emptively disable sha256 payload, if checksum is set.
+
 	opts := minio.PutObjectOptions{
 		UserMetadata:          metadata,
 		UserTags:              tagsMap,
@@ -1097,6 +1102,7 @@ func (c *S3Client) Put(ctx context.Context, reader io.Reader, size int64, progre
 		SendContentMd5:        putOpts.md5,
 		Checksum:              putOpts.checksum,
 		DisableMultipart:      putOpts.disableMultipart,
+		DisableContentSha256:  disableSha256,
 		PartSize:              putOpts.multipartSize,
 		NumThreads:            putOpts.multipartThreads,
 		ConcurrentStreamParts: putOpts.concurrentStream, // if enabled honors NumThreads for piped() uploads
@@ -1659,18 +1665,21 @@ func (c *S3Client) Stat(ctx context.Context, opts StatOptions) (*ClientContent, 
 		if opts.isZip {
 			o.Set("x-minio-extract", "true")
 		}
+
 		o.Set("x-amz-checksum-mode", "ENABLED")
 		ctnt, err := c.getObjectStat(ctx, bucket, path, o)
 		if err == nil {
 			return ctnt, nil
 		}
+
 		// Ignore object missing error but return for other errors
 		if !errors.As(err.ToGoError(), &ObjectMissing{}) && !errors.As(err.ToGoError(), &ObjectIsDeleteMarker{}) {
 			return nil, err
 		}
 
 		// when versionID is specified we do not have to perform List() operation
-		if opts.versionID != "" && errors.As(err.ToGoError(), &ObjectMissing{}) || errors.As(err.ToGoError(), &ObjectIsDeleteMarker{}) {
+		// when headOnly is specified we do not have to perform List() operation
+		if (opts.versionID != "" || opts.headOnly) && errors.As(err.ToGoError(), &ObjectMissing{}) || errors.As(err.ToGoError(), &ObjectIsDeleteMarker{}) {
 			return nil, probe.NewError(ObjectMissing{opts.timeRef})
 		}
 
@@ -2289,6 +2298,7 @@ func (c *S3Client) objectInfo2ClientContent(bucket string, entry minio.ObjectInf
 	setChecksum("CRC32C", entry.ChecksumCRC32C)
 	setChecksum("SHA1", entry.ChecksumSHA1)
 	setChecksum("SHA256", entry.ChecksumSHA256)
+	setChecksum("CRC64NVME", entry.ChecksumCRC64NVME)
 	return content
 }
 
