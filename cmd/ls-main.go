@@ -60,6 +60,10 @@ var (
 			Name:  "zip",
 			Usage: "list files inside zip archive (MinIO servers only)",
 		},
+		cli.Uint64Flag{
+			Name:  "max-keys",
+			Usage: "max objects in ls command",
+		},
 	}
 )
 
@@ -112,6 +116,9 @@ EXAMPLES:
   
   10. List all objects on mybucket, for the GLACIER storage class
      {{.Prompt}} {{.HelpName}} --storage-class 'GLACIER' s3/mybucket 
+
+  11. List at most 5 objects on mybucket
+     {{.Prompt}} {{.HelpName}} --max-keys 5 s3/mybucket
 `,
 }
 
@@ -174,6 +181,7 @@ func checkListSyntax(cliCtx *cli.Context) ([]string, doListOptions) {
 	withVersions := cliCtx.Bool("versions")
 	isSummary := cliCtx.Bool("summarize")
 	listZip := cliCtx.Bool("zip")
+	maxKeys := cliCtx.Uint64("max-keys")
 
 	timeRef := parseRewindFlag(cliCtx.String("rewind"))
 
@@ -189,6 +197,7 @@ func checkListSyntax(cliCtx *cli.Context) ([]string, doListOptions) {
 		withVersions: withVersions,
 		listZip:      listZip,
 		filter:       storageClasss,
+		maxKeys:      maxKeys,
 	}
 	return args, opts
 }

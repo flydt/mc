@@ -214,6 +214,7 @@ type doListOptions struct {
 	withVersions bool
 	listZip      bool
 	filter       string
+	maxKeys      uint64
 }
 
 // doList - list all entities inside a folder.
@@ -255,6 +256,11 @@ func doList(ctx context.Context, clnt Client, o doListOptions) error {
 		perObjectVersions = append(perObjectVersions, content)
 		totalSize += content.Size
 		totalObjects++
+		if o.maxKeys > 0 && totalObjects >= int64(o.maxKeys) {
+			// already list enough objects, leave now
+			break
+		}
+
 	}
 
 	printObjectVersions(clnt.GetURL(), perObjectVersions, o.withVersions)
