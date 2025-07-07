@@ -93,6 +93,10 @@ var (
 			Name:  "tags",
 			Usage: "match tags with RE2 regex pattern. Specify each with key=regex. MinIO server only.",
 		},
+		cli.Uint64Flag{
+			Name:  "max-keys",
+			Usage: "max objects in find command",
+		},
 	}
 )
 
@@ -171,6 +175,9 @@ EXAMPLES:
 
   11. Copy all versions of all objects in bucket in the local machine
       {{.Prompt}} {{.HelpName}} s3/bucket --versions --exec "mc cp --version-id {version} {} /tmp/dir/{}.{version}"
+
+  12. List at most 5 objects on mybucket
+      {{.Prompt}} {{.HelpName}} --max-keys 5 s3/mybucket
 `,
 }
 
@@ -213,6 +220,7 @@ type findContext struct {
 	pathPattern   string
 	regexPattern  *regexp.Regexp
 	maxDepth      uint
+	maxKeys       uint
 	printFmt      string
 	olderThan     string
 	newerThan     string
@@ -297,6 +305,7 @@ func mainFind(cliCtx *cli.Context) error {
 	return doFind(ctx, &findContext{
 		Context:       cliCtx,
 		maxDepth:      cliCtx.Uint("maxdepth"),
+		maxKeys:       cliCtx.Uint("max-keys"),
 		execCmd:       cliCtx.String("exec"),
 		printFmt:      cliCtx.String("print"),
 		namePattern:   cliCtx.String("name"),

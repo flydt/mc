@@ -280,6 +280,7 @@ func doFind(ctxCtx context.Context, ctx *findContext) error {
 		WithMetadata:      len(ctx.matchMeta) > 0 || len(ctx.matchTags) > 0,
 	}
 
+	var itemCount uint = 0
 	// iterate over all content which is within the given directory
 	for content := range ctx.clnt.List(globalContext, lstOptions) {
 		if content.Err != nil {
@@ -330,6 +331,12 @@ func doFind(ctxCtx context.Context, ctx *findContext) error {
 		}
 
 		printMsg(findMessage{fileContent})
+		if ctx.maxKeys != 0 {
+			itemCount++
+			if itemCount == ctx.maxKeys {
+				return nil
+			}
+		}
 	}
 
 	// Success, notice watch will execute in defer only if enabled and this call
